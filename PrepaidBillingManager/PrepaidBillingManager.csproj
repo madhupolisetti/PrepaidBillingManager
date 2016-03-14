@@ -56,6 +56,7 @@
     <Compile Include="Account.cs" />
     <Compile Include="ApplicationController.cs" />
     <Compile Include="Call.cs" />
+    <Compile Include="Gateway.cs" />
     <Compile Include="Listener.cs" />
     <Compile Include="PrepaidService.cs">
       <SubType>Component</SubType>
@@ -68,7 +69,9 @@
     <Compile Include="SharedClass.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="App.config" />
+    <None Include="App.config">
+      <SubType>Designer</SubType>
+    </None>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

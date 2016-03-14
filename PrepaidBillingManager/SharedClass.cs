@@ -17,8 +17,9 @@ namespace PrepaidBillingManager
         private static Listener listener = (Listener)null;
         private static bool isServiceCleaned = true;
         private static List<string> allowedIpAddresses = new List<string>();
+        private static Dictionary<long, Account> accountMap = new Dictionary<long, Account>();
+        private static Dictionary<short, Gateway> gatewayMap = new Dictionary<short, Gateway>();
 
-        private Dictionary<long, Account> accountMap = new Dictionary<long, Account>();
         public static void InitiaLizeLogger()
         {
             GlobalContext.Properties["LogName"] = DateTime.Now.ToString("yyyyMMdd");
@@ -27,7 +28,7 @@ namespace PrepaidBillingManager
             SharedClass.dumpLogger = LogManager.GetLogger("DumpLogger");
             SharedClass.requestLogger = LogManager.GetLogger("RequestLogger");
         }
-        public bool AddAcount(long accountId, Account account) {
+        public static bool AddAcount(long accountId, Account account) {
             bool isAdded = false;
             try
             {
@@ -46,7 +47,7 @@ namespace PrepaidBillingManager
             }
             return isAdded;
         }
-        public bool RemoveAccount(long accountId) {
+        public static bool RemoveAccount(long accountId) {
             bool isRemoved = false;
             try
             {
@@ -74,5 +75,7 @@ namespace PrepaidBillingManager
         public static Listener Listener { get { if (SharedClass.listener == null) SharedClass.listener = new Listener(); return SharedClass.listener; } set { SharedClass.listener = value; } }
         public static bool IsServiceCleaned { get { return SharedClass.isServiceCleaned; } set { SharedClass.isServiceCleaned = value; } }
         public static List<string> AllowedIpAddresses { get { return allowedIpAddresses; } set { allowedIpAddresses = value; } }
+        public static Dictionary<long, Account> Accounts { get { return accountMap; } set { accountMap = value; } }
+        public static Dictionary<short, Gateway> Gateways { get { return gatewayMap; } set { gatewayMap = value; } }
     }
 }
