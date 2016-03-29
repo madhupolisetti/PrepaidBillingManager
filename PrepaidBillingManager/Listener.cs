@@ -14,7 +14,7 @@ namespace PrepaidBillingManager
         private List<string> ipsList = new List<string>();
         private int port = 0;
         private HttpListener listener = null;
-        private List<string> prefixes = null;
+        private List<string> prefixes = null;        
         public void Initialize()
         {
             this.prefixes = new List<string>();
@@ -34,6 +34,7 @@ namespace PrepaidBillingManager
             int statusCode = 200;
             Account account = null;
             Call call = null;
+            ThreadPool.SetMaxThreads(5, 5);
             foreach (string uriPrefix in this.prefixes)
             {
                 //SharedClass.Logger.Info((object)("Adding Url " + uriPrefix + " To Listener"));
@@ -53,160 +54,185 @@ namespace PrepaidBillingManager
             while (!SharedClass.HasStopSignal) {
                 try
                 {
-                    try
-                    {
-                        context = null;
-                        requestUUID = null;
-                        jsonResponse = null;
-                        statusCode = 200;
-                        account = null;
-                        context = this.listener.GetContext();
-                        if (context != null)
-                        {   
-                            requestUUID = System.Guid.NewGuid().ToString();
-                            jsonResponse = new JObject();
-                            SharedClass.RequestLogger.Info("New Request [" + requestUUID + "] from  " + context.Request.RemoteEndPoint.Address + ":" + context.Request.RemoteEndPoint.Port + " To [" + context.Request.HttpMethod + "] " + context.Request.RawUrl);
-                            if (!SharedClass.AllowedIpAddresses.Contains(context.Request.RemoteEndPoint.Address.ToString()))
-                            {
-                                statusCode = 503;
-                                jsonResponse.Add(new JProperty("Success", false));
-                                jsonResponse.Add(new JProperty("Message", "Service Unavailable"));
-                            }
-                            else {
-                                if (context.Request.RawUrl.StartsWith("/Call")) {
-                                    if (context.Request.QueryString["AccountId"] == null || context.Request.QueryString["GatewayId"] == null || context.Request.QueryString["PricePerPulse"] == null || context.Request.QueryString["UUID"] == null || context.Request.QueryString["CallId"] == null || context.Request.QueryString["SiteId"] == null)
-                                    {
-                                        statusCode = 400;
-                                        jsonResponse.Add(new JProperty("Success", false));
-                                        jsonResponse.Add(new JProperty("Message", "AccountId,GatewayId,UUID,PricePerPulse,CallId,SiteId are Mandatory"));
-                                        continue;
-                                    }
-                                    SharedClass.Accounts.TryGetValue(Convert.ToInt64(context.Request.QueryString["AccountId"]), out account);
-                                    if (account == null)
-                                    {
-                                        account = new Account(Convert.ToInt64(context.Request.QueryString["AccountId"]), Convert.ToSByte(context.Request.QueryString["SiteId"]));
-                                        SharedClass.AddAcount(account.Id, account);
-                                    }
-                                    call = new Call();
-                                    call.Id = Convert.ToInt64(context.Request.QueryString["CallId"]);
-                                    call.UUID = context.Request.QueryString["UUID"];
-                                    call.GatewayId = Convert.ToInt16(context.Request.QueryString["GatewayId"]);
-                                    call.PricePerPulse = float.Parse(context.Request.QueryString["PricePerPulse"], System.Globalization.CultureInfo.InvariantCulture.NumberFormat);
-                                    account.AddCall(call);
-                                    if (account.CanDial(call.PricePerPulse))
-                                    {   
-                                        jsonResponse.Add(new JProperty("Success", true));
-                                        jsonResponse.Add(new JProperty("Message", "OK"));
-                                    }
-                                    else
-                                    {
-                                        statusCode = 403;
-                                        jsonResponse.Add(new JProperty("Success", false));
-                                        jsonResponse.Add(new JProperty("Message", "Insufficient Balance"));
-                                        account.RemoveCall(call.Id);
-                                    }
-                                }
-                                else if (context.Request.RawUrl.StartsWith("/PulseNotify"))
-                                {
-                                    if (context.Request.QueryString["CallId"] == null || context.Request.QueryString["AccountId"] == null)
-                                    {
-                                        statusCode = 400;
-                                        jsonResponse.Add(new JProperty("Success", false));
-                                        jsonResponse.Add(new JProperty("Message", "CallId, AccountId are Mandatory"));
-                                        continue;
-                                    }
-                                    SharedClass.Accounts.TryGetValue(Convert.ToInt64(context.Request.QueryString["AccountId"]), out account);
-                                    if (account == null) {
-                                        statusCode = 404;
-                                        jsonResponse.Add(new JProperty("Success", false));
-                                        jsonResponse.Add(new JProperty("Message", "Account Not Found In Map"));
-                                        continue;
-                                    }
-                                    account.Calls.TryGetValue(Convert.ToInt64(context.Request.QueryString["CallId"]), out call);
-                                    if (call == null) {
-                                        statusCode = 404;
-                                        jsonResponse.Add(new JProperty("Success", false));
-                                        jsonResponse.Add(new JProperty("Message", "Call Not Found In Map"));
-                                        continue;
-                                    }
-                                    bool isCompleted = false;
-                                    if (context.Request.QueryString["IsCompleted"] != null && bool.TryParse(context.Request.QueryString["IsCompleted"], out isCompleted)) {
-                                        call.IsCompleted = isCompleted;
-                                    }
-                                    jsonResponse = account.UpdateBalance(call);
-                                    statusCode = Convert.ToInt16(jsonResponse.SelectToken("StatusCode").ToString());
-                                    jsonResponse.Remove("StatusCode");
-                                }
-                                else if (context.Request.RawUrl.StartsWith("/Accounts")) {
-                                    jsonResponse.Add(new JProperty("Success", true));
-                                    jsonResponse.Add(new JProperty("Message", "OK"));
-                                    jsonResponse.Add(new JProperty("AccountCount", SharedClass.Accounts.Count));
-                                    JArray accountsArray = new JArray();
-                                    JArray callsArray = null;
-                                    JObject tempAccount = null;
-                                    JObject tempCall = null;
-                                    bool renderCalls = false;
-                                    if (context.Request.QueryString["RenderCalls"] != null) {
-                                        bool.TryParse(context.Request.QueryString["RenderCalls"].ToString(), out renderCalls);
-                                    }
-                                    foreach (KeyValuePair<long, Account> activeAccount in SharedClass.Accounts) {
-                                        tempAccount = new JObject();                                        
-                                        tempAccount.Add(new JProperty("Id", activeAccount.Value.Id));
-                                        tempAccount.Add(new JProperty("Balance", activeAccount.Value.Balance));
-                                        tempAccount.Add(new JProperty("CallsCount", activeAccount.Value.Calls.Count));
-                                        if (renderCalls) {
-                                            callsArray = new JArray();
-                                            foreach (KeyValuePair<long, Call> activeCall in activeAccount.Value.Calls) {
-                                                tempCall = new JObject();
-                                                tempCall.Add(new JProperty("Id", activeCall.Value.Id));
-                                                tempCall.Add(new JProperty("UUID", activeCall.Value.UUID));
-                                                tempCall.Add(new JProperty("GatewayId", activeCall.Value.GatewayId));
-                                                tempCall.Add(new JProperty("IsCompleted", activeCall.Value.IsCompleted));
-                                                tempCall.Add(new JProperty("PricePerPulse", activeCall.Value.PricePerPulse));
-                                                tempCall.Add(new JProperty("Pulse", activeCall.Value.Pulse));
-                                                tempCall.Add(new JProperty("PulsesElapsed", activeCall.Value.PulsesElapsed));
-                                                callsArray.Add(tempCall);
-                                            }
-                                            tempAccount.Add(new JProperty("Calls", callsArray));
-                                        }
-                                        accountsArray.Add(tempAccount);
-                                    }
-                                    jsonResponse.Add(new JProperty("Accounts", accountsArray));
-                                }
-                            }
-                        }
-                    }
-                    catch (HttpListenerException e)
-                    {
-                        //SharedClass.Logger.Error("HttpListener Exception : " + e.ToString());
-                    }
-                    catch (Exception e)
-                    {
-                        statusCode = 500;
-                        jsonResponse = new JObject(new JProperty("Success", false), new JProperty("Message", e.Message));
-                        SharedClass.Logger.Error(e.ToString());
-                    }
-                    finally {
-                        try {
-                            if (context != null) {
-                                context.Response.StatusCode = statusCode;
-                                context.Response.OutputStream.Write(System.Text.Encoding.UTF8.GetBytes(jsonResponse.ToString()), 0, jsonResponse.ToString().Length);
-                                context.Response.Close();
-                            }
-                        }
-                        catch (Exception e) { 
-
-                        }
-                    }
+                    //context = this.listener.GetContext();
+                    //this.listener.BeginGetContext(new AsyncCallback(OnRequest, null);
+                    ThreadPool.QueueUserWorkItem(OnRequest, listener.GetContext());
                 }
-                catch (Exception e) {
-                    SharedClass.Logger.Error("Error Processing Request : " + e.ToString());
+                catch (HttpListenerException e)
+                {
+                    //SharedClass.Logger.Error("HttpListener Exception : " + e.ToString());
+                }
+                catch (Exception e)
+                {
+
+                }
+                finally
+                {
+
                 }
             }
-            //do
-            //    ;
-            //while (!SharedClass.HasStopSignal);
-            //SharedClass.Logger.Info((object)"Listener Exited From While Loop");
+        }
+
+        public void OnRequest(object input)
+        {
+            //HttpListenerContext context = this.listener.EndGetContext(ar);
+            //listener.BeginGetContext(OnRequest, null);
+            HttpListenerContext context = (HttpListenerContext)input;
+            string requestUUID = null;
+            JObject jsonResponse = null;
+            int statusCode = 200;
+            Account account = null;
+            Call call = null;
+            try
+            {
+                requestUUID = System.Guid.NewGuid().ToString();
+                jsonResponse = new JObject();
+                SharedClass.RequestLogger.Info("New Request [" + requestUUID + "] " + Thread.CurrentThread.ManagedThreadId + " from  " + context.Request.RemoteEndPoint.Address + ":" + context.Request.RemoteEndPoint.Port + " To [" + context.Request.HttpMethod + "] " + context.Request.RawUrl);
+                //if (Thread.CurrentThread.ManagedThreadId % 2 == 0) {
+                //    Thread.Sleep(10000);
+                //}
+                if (!SharedClass.AllowedIpAddresses.Contains(context.Request.RemoteEndPoint.Address.ToString()))
+                {
+                    statusCode = 503;
+                    jsonResponse.Add(new JProperty("Success", false));
+                    jsonResponse.Add(new JProperty("Message", "Service Unavailable"));
+                }
+                else
+                {
+                    if (context.Request.RawUrl.StartsWith("/Call"))
+                    {
+                        if (context.Request.QueryString["AccountId"] == null || context.Request.QueryString["GatewayId"] == null || context.Request.QueryString["PricePerPulse"] == null || context.Request.QueryString["UUID"] == null || context.Request.QueryString["CallId"] == null || context.Request.QueryString["SiteId"] == null)
+                        {
+                            statusCode = 400;
+                            jsonResponse.Add(new JProperty("Success", false));
+                            jsonResponse.Add(new JProperty("Message", "AccountId,GatewayId,UUID,PricePerPulse,CallId,SiteId are Mandatory"));
+                            return;
+                        }
+                        SharedClass.Accounts.TryGetValue(Convert.ToInt64(context.Request.QueryString["AccountId"]), out account);
+                        if (account == null)
+                        {
+                            account = new Account(Convert.ToInt64(context.Request.QueryString["AccountId"]), Convert.ToSByte(context.Request.QueryString["SiteId"]));
+                            SharedClass.AddAcount(account.Id, account);
+                        }
+                        call = new Call();
+                        call.Id = Convert.ToInt64(context.Request.QueryString["CallId"]);
+                        call.UUID = context.Request.QueryString["UUID"];
+                        call.GatewayId = Convert.ToInt16(context.Request.QueryString["GatewayId"]);
+                        call.PricePerPulse = float.Parse(context.Request.QueryString["PricePerPulse"], System.Globalization.CultureInfo.InvariantCulture.NumberFormat);
+                        account.AddCall(call);
+                        if (account.CanDial(call.PricePerPulse))
+                        {
+                            jsonResponse.Add(new JProperty("Success", true));
+                            jsonResponse.Add(new JProperty("Message", "OK"));
+                        }
+                        else
+                        {
+                            statusCode = 403;
+                            jsonResponse.Add(new JProperty("Success", false));
+                            jsonResponse.Add(new JProperty("Message", "Insufficient Balance"));
+                            account.RemoveCall(call.Id);
+                        }
+                    }
+                    else if (context.Request.RawUrl.StartsWith("/PulseNotify"))
+                    {
+                        if (context.Request.QueryString["CallId"] == null || context.Request.QueryString["AccountId"] == null)
+                        {
+                            statusCode = 400;
+                            jsonResponse.Add(new JProperty("Success", false));
+                            jsonResponse.Add(new JProperty("Message", "CallId, AccountId are Mandatory"));
+                            return;
+                        }
+                        SharedClass.Accounts.TryGetValue(Convert.ToInt64(context.Request.QueryString["AccountId"]), out account);
+                        if (account == null)
+                        {
+                            statusCode = 404;
+                            jsonResponse.Add(new JProperty("Success", false));
+                            jsonResponse.Add(new JProperty("Message", "Account Not Found In Map"));
+                            return;
+                        }
+                        account.Calls.TryGetValue(Convert.ToInt64(context.Request.QueryString["CallId"]), out call);
+                        if (call == null)
+                        {
+                            statusCode = 404;
+                            jsonResponse.Add(new JProperty("Success", false));
+                            jsonResponse.Add(new JProperty("Message", "Call Not Found In Map"));
+                            return;
+                        }
+                        bool isCompleted = false;
+                        if (context.Request.QueryString["IsCompleted"] != null && bool.TryParse(context.Request.QueryString["IsCompleted"], out isCompleted))
+                        {
+                            call.IsCompleted = isCompleted;
+                        }
+                        jsonResponse = account.UpdateBalance(call);
+                        statusCode = Convert.ToInt16(jsonResponse.SelectToken("StatusCode").ToString());
+                        jsonResponse.Remove("StatusCode");
+                    }
+                    else if (context.Request.RawUrl.StartsWith("/Accounts"))
+                    {
+                        jsonResponse.Add(new JProperty("Success", true));
+                        jsonResponse.Add(new JProperty("Message", "OK"));
+                        jsonResponse.Add(new JProperty("AccountCount", SharedClass.Accounts.Count));
+                        JArray accountsArray = new JArray();
+                        JArray callsArray = null;
+                        JObject tempAccount = null;
+                        JObject tempCall = null;
+                        bool renderCalls = false;
+                        if (context.Request.QueryString["RenderCalls"] != null)
+                        {
+                            bool.TryParse(context.Request.QueryString["RenderCalls"].ToString(), out renderCalls);
+                        }
+                        foreach (KeyValuePair<long, Account> activeAccount in SharedClass.Accounts)
+                        {
+                            tempAccount = new JObject();
+                            tempAccount.Add(new JProperty("Id", activeAccount.Value.Id));
+                            tempAccount.Add(new JProperty("Balance", activeAccount.Value.Balance));
+                            tempAccount.Add(new JProperty("CallsCount", activeAccount.Value.Calls.Count));
+                            if (renderCalls)
+                            {
+                                callsArray = new JArray();
+                                foreach (KeyValuePair<long, Call> activeCall in activeAccount.Value.Calls)
+                                {
+                                    tempCall = new JObject();
+                                    tempCall.Add(new JProperty("Id", activeCall.Value.Id));
+                                    tempCall.Add(new JProperty("UUID", activeCall.Value.UUID));
+                                    tempCall.Add(new JProperty("GatewayId", activeCall.Value.GatewayId));
+                                    tempCall.Add(new JProperty("IsCompleted", activeCall.Value.IsCompleted));
+                                    tempCall.Add(new JProperty("PricePerPulse", activeCall.Value.PricePerPulse));
+                                    tempCall.Add(new JProperty("Pulse", activeCall.Value.Pulse));
+                                    tempCall.Add(new JProperty("PulsesElapsed", activeCall.Value.PulsesElapsed));
+                                    callsArray.Add(tempCall);
+                                }
+                                tempAccount.Add(new JProperty("Calls", callsArray));
+                            }
+                            accountsArray.Add(tempAccount);
+                        }
+                        jsonResponse.Add(new JProperty("Accounts", accountsArray));
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                statusCode = 500;
+                jsonResponse = new JObject(new JProperty("Success", false), new JProperty("Message", e.Message));
+                SharedClass.Logger.Error(e.ToString());
+            }
+            finally
+            {
+                try
+                {
+                    if (context != null)
+                    {
+                        SharedClass.RequestLogger.Info("End Request [" + requestUUID + "] StatusCode : " + statusCode + ", Response : " + jsonResponse);
+                        context.Response.StatusCode = statusCode;
+                        context.Response.OutputStream.Write(System.Text.Encoding.UTF8.GetBytes(jsonResponse.ToString()), 0, jsonResponse.ToString().Length);
+                        context.Response.Close();
+                    }
+                }
+                catch (Exception e)
+                {
+
+                }
+            }
         }
         public void Destroy()
         {

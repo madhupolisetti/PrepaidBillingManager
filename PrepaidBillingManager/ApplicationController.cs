@@ -11,6 +11,7 @@ namespace PrepaidBillingManager
     {
         public ApplicationController() {
             this.LoadConfig();
+            this.LoadGateways();
         }
         public void Start() {
             if (SharedClass.Gateways.Count > 0)
@@ -37,7 +38,7 @@ namespace PrepaidBillingManager
             }
             SharedClass.IsServiceCleaned = true;
         }
-        public void LoadGateways() {
+        private void LoadGateways() {
             System.Data.SqlClient.SqlConnection sqlCon = new System.Data.SqlClient.SqlConnection(System.Configuration.ConfigurationManager.ConnectionStrings["DbConnectionString"].ConnectionString);
             System.Data.SqlClient.SqlCommand sqlCmd = new System.Data.SqlClient.SqlCommand("Select Id, Url From VoiceGateWays with(nolock)", sqlCon);
             System.Data.SqlClient.SqlDataAdapter da = new System.Data.SqlClient.SqlDataAdapter();

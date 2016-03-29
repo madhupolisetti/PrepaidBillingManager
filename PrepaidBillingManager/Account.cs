@@ -45,7 +45,7 @@ namespace PrepaidBillingManager
                 SharedClass.Logger.Error("Error Fetching Account Balance : " + e.ToString());
                 throw new WebException(e.Message);
             }
-            this.balance = 1;
+            //this.balance = 1;
             callsMap = new Dictionary<long, Call>();
             balanceMutex = new System.Threading.Mutex();
         }        
